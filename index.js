@@ -4,11 +4,14 @@ import {query} from "./db/db.js"
 import bcrypt from 'bcrypt';
 import session from "express-session";
 import passport from "passport";
-import { Strategy } from "passport-local";
+import { Strategy as LocalStrategy } from "passport-local";
+import { Strategy as FacebookStrategy } from 'passport-facebook';
 
 const app = express();
 const port = 3000;
 const saltRounds = 2;
+
+app.set("view engine", "ejs");
 
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static("public"));
@@ -18,7 +21,10 @@ app.use(express.static("public"));
 app.use(session({
   secret:"TOPSECRET",
   resave: false,
-  saveUninitialized: true
+  saveUninitialized: true,
+  cookie: {
+    maxAge: 1000 * 60 * 60 * 60
+  }
 }))
 
 app.use(passport.initialize());
@@ -47,7 +53,6 @@ app.post("/register", async (req, res) => {
     if(response.rowCount > 0){
       res.send("email already exist");
     }else{
-
         bcrypt.hash(password, saltRounds, async (err, hash) => {
           if(err){
             console.error("error registering: ", err);
@@ -68,11 +73,19 @@ app.post("/register", async (req, res) => {
   }
 });
 
-app.post("/login", async (req, res) => {
+app.get('/auth/facebook', passport.authenticate('facebook', {scope: ['email']}));
 
-});
+app.get('/auth/facebook/callback', passport.authenticate("facebook", {
+  successRedirect: "/secrets",
+  failureRedirect: "/login"
+}));
 
-passport.use(new Strategy(async function verify(username, password, cb){
+app.post("/login", passport.authenticate('local', {
+    successRedirect: 'secrets',
+    failureRedirect: 'login'
+}));
+
+passport.use(new LocalStrategy(async function verify(username, password, cb){
   
   try {
     const response = await query("select * from users where username = ($1);", [username]);
@@ -101,6 +114,32 @@ passport.use(new Strategy(async function verify(username, password, cb){
   }
 }));
 
+passport.use(new FacebookStrategy({
+
+  clientID: process.env.FB_APP_ID ,
+  clientSecret: process.env.FB_APP_SECRET ,
+  callbackURL: 'http://localhost:3000/auth/facebook/callback',
+  profileFields: ['id','email']
+
+} ,async (accessToken, refreshToken, profile, cb) => {
+
+  try {
+    let result = await query("SELECT * FROM users WHERE facebook_id = $1;",[profile.id]);
+
+    //user exists
+    if (result.rowCount > 0){
+      return cb (null, result.rows[0]);
+    }
+
+    const newUser = await query("INSERT INTO users (facebook_id, username) VALUES ($1, $2) RETURNING *", [profile.id, profile.emails[0].value]);
+
+    return cb(null, newUser.rows[0]);
+  } catch (error) {
+    return cb(error)
+  }
+
+} ));
+
 app.get("/secrets", (req, res)=>{
   if(req.isAuthenticated()){
     res.render("secrets.ejs")
@@ -109,6 +148,20 @@ app.get("/secrets", (req, res)=>{
   }
 });
 
+passport.serializeUser((user, cb) => {
+  cb(null, user.id);
+});
+
+passport.deserializeUser(async (id, cb) => {
+
+  try {
+    const result = await query("SELECT * FROM users where id = $1;", [id]);
+    cb(null, result.rows[0]);
+  } catch (error) {
+    cb(error);
+  }
+
+});
 
 
 app.listen(port, () => {
