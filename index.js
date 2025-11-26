@@ -18,12 +18,16 @@ app.use(express.static("public"));
 
 
 //creating session
-app.use(session({
-  secret:"TOPSECRET",
+app.use(
+  session({
+  secret:"TOPSECRETWORD",
   resave: false,
   saveUninitialized: true,
   cookie: {
-    maxAge: 1000 * 60 * 60 * 60
+    maxAge: 1000 * 60,
+    httpOnly: true,
+    secure: false,
+    sameSite: "lax"
   }
 }))
 
@@ -57,13 +61,15 @@ app.post("/register", async (req, res) => {
           if(err){
             console.error("error registering: ", err);
           }else{
-            const response = await query("INSERT INTO users (username, password) VALUES ($1, $2);",[username, hash]);
+            const response = await query("INSERT INTO users (username, password) VALUES ($1, $2) RETURNING *;",[username, hash]);
+            const user = response.rows[0];
 
-            if(response.rowCount > 0){
-              res.status(200).render("secrets.ejs");
-            }else{
-              res.status(500).send("internal server error");
-          }}
+            req.login(user, (err) => {
+              console.log("success");
+              res.redirect("/secrets");
+            })
+
+        }
         });
       }
   
@@ -81,8 +87,8 @@ app.get('/auth/facebook/callback', passport.authenticate("facebook", {
 }));
 
 app.post("/login", passport.authenticate('local', {
-    successRedirect: 'secrets',
-    failureRedirect: 'login'
+    successRedirect: '/secrets',
+    failureRedirect: '/login'
 }));
 
 passport.use(new LocalStrategy(async function verify(username, password, cb){
@@ -149,20 +155,11 @@ app.get("/secrets", (req, res)=>{
 });
 
 passport.serializeUser((user, cb) => {
-  cb(null, user.id);
+  cb(null, user);
 });
-
-passport.deserializeUser(async (id, cb) => {
-
-  try {
-    const result = await query("SELECT * FROM users where id = $1;", [id]);
-    cb(null, result.rows[0]);
-  } catch (error) {
-    cb(error);
-  }
-
+passport.deserializeUser((user, cb) => {
+  cb(null, user);
 });
-
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
