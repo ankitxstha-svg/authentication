@@ -6,6 +6,7 @@ import session from "express-session";
 import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
 import { Strategy as FacebookStrategy } from 'passport-facebook';
+import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 
 const app = express();
 const port = 3000;
@@ -81,7 +82,14 @@ app.post("/register", async (req, res) => {
 
 app.get('/auth/facebook', passport.authenticate('facebook', {scope: ['email']}));
 
+app.get("/auth/google", passport.authenticate('google', {scope: ['profile','email']}));
+
 app.get('/auth/facebook/callback', passport.authenticate("facebook", {
+  successRedirect: "/secrets",
+  failureRedirect: "/login"
+}));
+
+app.get('/auth/google/callback', passport.authenticate("google", {
   successRedirect: "/secrets",
   failureRedirect: "/login"
 }));
@@ -120,7 +128,7 @@ passport.use(new LocalStrategy(async function verify(username, password, cb){
   }
 }));
 
-passport.use(new FacebookStrategy({
+passport.use("facebook",new FacebookStrategy({
 
   clientID: process.env.FB_APP_ID ,
   clientSecret: process.env.FB_APP_SECRET ,
@@ -145,6 +153,21 @@ passport.use(new FacebookStrategy({
   }
 
 } ));
+
+passport.use("google",new GoogleStrategy({
+
+  clientID: process.env.GOOGLE_CLIENT_ID,
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  callbackURL: "http://localhost:3000/auth/google/callback"},
+
+  async(accessToken, refreshToken, profile, cb)=>{
+
+    console.log(profile);
+    return cb(null, true);
+
+  }
+
+));
 
 app.get("/secrets", (req, res)=>{
   if(req.isAuthenticated()){
