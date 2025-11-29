@@ -44,6 +44,13 @@ app.get("/login", (req, res) => {
   res.render("login.ejs");
 });
 
+app.get("/logout", (req, res)=>{
+  req.logout((error) => {
+    if(error) console.log(error)
+      res.redirect("/");
+  })
+})
+
 app.get("/register", (req, res) => {
   res.render("register.ejs");
 });
@@ -80,7 +87,7 @@ app.post("/register", async (req, res) => {
   }
 });
 
-app.get('/auth/facebook', passport.authenticate('facebook', {scope: ['email']}));
+app.get('/auth/facebook', passport.authenticate('facebook', {scope: ['profile','email']}));
 
 app.get("/auth/google", passport.authenticate('google', {scope: ['profile','email']}));
 
@@ -138,16 +145,18 @@ passport.use("facebook",new FacebookStrategy({
 } ,async (accessToken, refreshToken, profile, cb) => {
 
   try {
-    let result = await query("SELECT * FROM users WHERE facebook_id = $1;",[profile.id]);
+    let result = await query("SELECT * FROM users WHERE username = $1;",[profile.emails[0].value]);
 
     //user exists
     if (result.rowCount > 0){
       return cb (null, result.rows[0]);
     }
+    else{
 
-    const newUser = await query("INSERT INTO users (facebook_id, username) VALUES ($1, $2) RETURNING *", [profile.id, profile.emails[0].value]);
+      const newUser = await query("INSERT INTO users (facebook_id, username) VALUES ($1, $2) RETURNING *", [profile.id, profile.emails[0].value]);
 
-    return cb(null, newUser.rows[0]);
+      return cb(null, newUser.rows[0]);
+    }
   } catch (error) {
     return cb(error)
   }
@@ -161,9 +170,19 @@ passport.use("google",new GoogleStrategy({
   callbackURL: "http://localhost:3000/auth/google/callback"},
 
   async(accessToken, refreshToken, profile, cb)=>{
+    try {
+      let result = await query("SELECT * FROM users WHERE username = $1;",[profile.emails[0].value]);
 
-    console.log(profile);
-    return cb(null, true);
+      if(result.rowCount > 0){
+        console.log(profile.emails[0], " alreade exist");
+        return cb(null, result.rows[0]);
+      }else{
+        const newUser = await query("INSERT into users (google_id,username) VALUES ($1,$2) RETURNING *;", [profile.id, profile.emails[0].value] );
+        return cb(null, newUser.rows[0]);
+      }
+    } catch (error) {
+      return cb(error);
+    }
 
   }
 
